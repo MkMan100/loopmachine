@@ -12,7 +12,8 @@ public:
     //==============================================================================
     void paint (juce::Graphics&) override;
     void resized() override;
-
+    void prepareToPlay (double sampleRate, int samplesPerBlock) override;
+    void releaseResources() override;
 private:
     AdvancedLooperAudioProcessor& audioProcessor;
 
