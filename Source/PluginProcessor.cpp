@@ -224,7 +224,12 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         }
     }
 }
-
+void AdvancedLooperAudioProcessor::releaseResources()
+{
+    // Quando la riproduzione si ferma, liberiamo le risorse dei moduli DSP
+    cutoffFilter.reset();
+    dubDelay.reset();
+}
 //==============================================================================
 bool AdvancedLooperAudioProcessor::hasEditor() const { return true; }
 juce::AudioProcessorEditor* AdvancedLooperAudioProcessor::createEditor() { return new AdvancedLooperAudioProcessorEditor (*this); }
