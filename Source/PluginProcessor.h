@@ -62,7 +62,7 @@ private:
 
     // DSP Modules
     juce::dsp::StateVariableTPTFilter<float> cutoffFilter;
-    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationType::Linear> dubDelay { 192000 }; // Delay buffer per 2+ sec a 96kHz
+    juce::dsp::DelayLine<float> dubDelay { 192000 }; // Max ~2 sec a 96kHz
     
     // Buffer circolare per feedback del Dub Delay
     juce::AudioBuffer<float> delayFeedbackBuffer;
