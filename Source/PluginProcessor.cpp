@@ -97,20 +97,23 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 
     bool isReverse = *apvts.getRawParameterValue ("reverse") > 0.5f;
     int currentState = static_cast<int> (*apvts.getRawParameterValue ("state"));
-
     int numSamples = buffer.getNumSamples();
 
-    // -------------------------------------------------------------------------
-    // LOGICA DI REGISTRAZIONE E PLAYBACK (AUDIO + MIDI)
-    // -------------------------------------------------------------------------
-    if (currentState == 1) // Recording
+    // 0 = Empty, 1 = Recording, 2 = Playing, 3 = Overdub
+
+    // --- 1. RECORDING ---
+    if (currentState == 1) 
     {
+        // Se siamo appena entrati in Recording, azzeriamo la posizione di scrittura
+        if (recordedLoopLength == 0 && writePosition >= maxLoopSamples - numSamples)
+            writePosition = 0;
+
         for (int channel = 0; channel < totalNumInputChannels; ++channel)
         {
             loopAudioBuffer.copyFrom (channel, writePosition, buffer, channel, 0, numSamples);
         }
 
-        // Cattura eventi MIDI nel buffer di loop
+        // Cattura eventi MIDI
         for (const auto metadata : midiMessages)
         {
             auto message = metadata.getMessage();
@@ -119,25 +122,46 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         }
 
         writePosition += numSamples;
-        recordedLoopLength = writePosition; // Imposta la lunghezza effettiva registrata
+        recordedLoopLength = writePosition; // La lunghezza del loop cresce durante la registrazione
+        readPosition = 0; // Prepara la testina di lettura
     }
-    else if (currentState == 2 && recordedLoopLength > 0) // Playing
+    // --- 2. PLAYBACK & OVERDUB ---
+    else if ((currentState == 2 || currentState == 3) && recordedLoopLength > 0) 
     {
-        buffer.clear(); // Puliamo l'output attuale per riempirlo dal loop
+        juce::AudioBuffer<float> outputBuffer;
+        outputBuffer.setSize (totalNumOutputChannels, numSamples);
+        outputBuffer.clear();
 
-        // Calcolo posizione di lettura (Reverse vs Forward)
         for (int sample = 0; sample < numSamples; ++sample)
         {
+            // Assicuriamoci che readPosition sia sempre dentro i limiti del loop
+            readPosition %= recordedLoopLength;
+
+            // Calcolo indice di lettura (Forward vs Reverse)
             int actualReadPos = isReverse ? (recordedLoopLength - 1 - readPosition) : readPosition;
 
             for (int channel = 0; channel < totalNumInputChannels; ++channel)
             {
-                buffer.setSample (channel, sample, loopAudioBuffer.getSample (channel, actualReadPos));
+                float loopSample = loopAudioBuffer.getSample (channel, actualReadPos);
+
+                // Se siamo in Overdub, sommiamo l'audio in ingresso al buffer di loop
+                if (currentState == 3)
+                {
+                    float inputSample = buffer.getSample (channel, sample);
+                    loopAudioBuffer.setSample (channel, actualReadPos, loopSample + inputSample);
+                    loopSample += inputSample; // Ascoltiamo la somma
+                }
+
+                outputBuffer.setSample (channel, sample, loopSample);
             }
 
             readPosition++;
-            if (readPosition >= recordedLoopLength)
-                readPosition = 0;
+        }
+
+        // Sostituiamo l'output con l'audio estratto dal loop
+        for (int channel = 0; channel < totalNumOutputChannels; ++channel)
+        {
+            buffer.copyFrom (channel, 0, outputBuffer, channel, 0, numSamples);
         }
 
         // Playback MIDI
@@ -145,12 +169,24 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         for (const auto metadata : midiLoopBuffer)
         {
             int eventPos = metadata.samplePosition;
-            if (eventPos >= readPosition && eventPos < readPosition + numSamples)
+            // Verifica se l'evento ricade nella finestra di campioni attuale
+            if (eventPos >= readPosition - numSamples && eventPos < readPosition)
             {
-                outputMidi.addEvent (metadata.getMessage(), eventPos - readPosition);
+                int offset = eventPos - (readPosition - numSamples);
+                if (offset >= 0 && offset < numSamples)
+                    outputMidi.addEvent (metadata.getMessage(), offset);
             }
         }
         midiMessages.swapWith (outputMidi);
+    }
+    // --- 0. EMPTY / RESET ---
+    else if (currentState == 0)
+    {
+        writePosition = 0;
+        readPosition = 0;
+        recordedLoopLength = 0;
+        loopAudioBuffer.clear();
+        midiLoopBuffer.clear();
     }
 
     // Passaggio attraverso il filtro Cutoff (DSP Block)
