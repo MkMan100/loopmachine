@@ -56,7 +56,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout AdvancedLooperAudioProcessor
 //==============================================================================
 void AdvancedLooperAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    // Inizializzazione DSP e azzeramento buffer di loop (Audio + MIDI)
     currentSampleRate = sampleRate;
 
     juce::dsp::ProcessSpec spec;
@@ -68,7 +67,15 @@ void AdvancedLooperAudioProcessor::prepareToPlay (double sampleRate, int samples
     cutoffFilter.prepare (spec);
     cutoffFilter.setType (juce::dsp::StateVariableTPTFilterType::lowpass);
 
-    // Allocazione massima buffer loop (es. 60 secondi a 44.1/48kHz)
+    // Inizializza Dub Delay
+    dubDelay.prepare (spec);
+    dubDelay.setMaximumDelayInSamples (static_cast<int> (sampleRate * 2.0)); // Max 2 secondi
+
+    // Inizializza buffer interno di feedback per il delay
+    delayFeedbackBuffer.setSize (getTotalNumOutputChannels(), samplesPerBlock);
+    delayFeedbackBuffer.clear();
+
+    // Allocazione massima buffer loop (60 secondi)
     maxLoopSamples = static_cast<int> (sampleRate * 60.0);
     loopAudioBuffer.setSize (getTotalNumOutputChannels(), maxLoopSamples);
     loopAudioBuffer.clear();
@@ -76,10 +83,6 @@ void AdvancedLooperAudioProcessor::prepareToPlay (double sampleRate, int samples
     midiLoopBuffer.clear();
     writePosition = 0;
     readPosition = 0;
-}
-
-void AdvancedLooperAudioProcessor::releaseResources()
-{
 }
 
 void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midiMessages)
@@ -91,39 +94,38 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     for (auto i = totalNumInputChannels; i < totalNumOutputChannels; ++i)
         buffer.clear (i, 0, buffer.getNumSamples());
 
-    // Aggiorna parametri DSP
-    float cutoffHz = *apvts.getRawParameterValue ("cutoff");
+    // Legge i parametri APVTS
+    float cutoffHz       = *apvts.getRawParameterValue ("cutoff");
+    bool isReverse       = *apvts.getRawParameterValue ("reverse") > 0.5f;
+    int currentState     = static_cast<int> (*apvts.getRawParameterValue ("state"));
+    int stepReduceVal    = static_cast<int> (*apvts.getRawParameterValue ("stepReduce")); // 1 (normale) a 16 (molto quantizzato)
+    float delayTimeMs    = *apvts.getRawParameterValue ("delayTime");
+    float delayFeedback  = *apvts.getRawParameterValue ("delayFeedback");
+
+    // Aggiorna Filtro
     cutoffFilter.setCutoffFrequency (cutoffHz);
 
-    bool isReverse = *apvts.getRawParameterValue ("reverse") > 0.5f;
-    int currentState = static_cast<int> (*apvts.getRawParameterValue ("state"));
-    int numSamples = buffer.getNumSamples();
+    // Aggiorna Tempo Delay in campioni
+    float delaySamples = (delayTimeMs / 1000.0f) * static_cast<float> (currentSampleRate);
+    dubDelay.setDelay (delaySamples);
 
-    // 0 = Empty, 1 = Recording, 2 = Playing, 3 = Overdub
+    int numSamples = buffer.getNumSamples();
 
     // --- 1. RECORDING ---
     if (currentState == 1) 
     {
-        // Se siamo appena entrati in Recording, azzeriamo la posizione di scrittura
         if (recordedLoopLength == 0 && writePosition >= maxLoopSamples - numSamples)
             writePosition = 0;
 
         for (int channel = 0; channel < totalNumInputChannels; ++channel)
-        {
             loopAudioBuffer.copyFrom (channel, writePosition, buffer, channel, 0, numSamples);
-        }
 
-        // Cattura eventi MIDI
         for (const auto metadata : midiMessages)
-        {
-            auto message = metadata.getMessage();
-            int sampleOffset = metadata.samplePosition;
-            midiLoopBuffer.addEvent (message, writePosition + sampleOffset);
-        }
+            midiLoopBuffer.addEvent (metadata.getMessage(), writePosition + metadata.samplePosition);
 
         writePosition += numSamples;
-        recordedLoopLength = writePosition; // La lunghezza del loop cresce durante la registrazione
-        readPosition = 0; // Prepara la testina di lettura
+        recordedLoopLength = writePosition;
+        readPosition = 0;
     }
     // --- 2. PLAYBACK & OVERDUB ---
     else if ((currentState == 2 || currentState == 3) && recordedLoopLength > 0) 
@@ -132,24 +134,35 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         outputBuffer.setSize (totalNumOutputChannels, numSamples);
         outputBuffer.clear();
 
+        // Calcolo della dimensione dello step per Step Reduction (sample-hold / stutter effect non distruttivo)
+        int stepSizeSamples = 1;
+        if (stepReduceVal < 16)
+        {
+            // Mappa il valore di stepReduce in una dimensione di blocco audio quantizzata
+            int divisionFactor = 17 - stepReduceVal; // da 1 (micro) a 16 (macro)
+            stepSizeSamples = juce::jmax (1, static_cast<int> (currentSampleRate / (divisionFactor * 4)));
+        }
+
         for (int sample = 0; sample < numSamples; ++sample)
         {
-            // Assicuriamoci che readPosition sia sempre dentro i limiti del loop
             readPosition %= recordedLoopLength;
 
-            // Calcolo indice di lettura (Forward vs Reverse)
-            int actualReadPos = isReverse ? (recordedLoopLength - 1 - readPosition) : readPosition;
+            // Logica Step Reduction: quantizza la posizione di lettura a blocchi rigidi
+            int quantizedReadPos = (readPosition / stepSizeSamples) * stepSizeSamples;
+            quantizedReadPos %= recordedLoopLength;
+
+            // Indice finale tenendo conto di Reverse
+            int actualReadPos = isReverse ? (recordedLoopLength - 1 - quantizedReadPos) : quantizedReadPos;
 
             for (int channel = 0; channel < totalNumInputChannels; ++channel)
             {
                 float loopSample = loopAudioBuffer.getSample (channel, actualReadPos);
 
-                // Se siamo in Overdub, sommiamo l'audio in ingresso al buffer di loop
-                if (currentState == 3)
+                if (currentState == 3) // Overdub
                 {
                     float inputSample = buffer.getSample (channel, sample);
                     loopAudioBuffer.setSample (channel, actualReadPos, loopSample + inputSample);
-                    loopSample += inputSample; // Ascoltiamo la somma
+                    loopSample += inputSample;
                 }
 
                 outputBuffer.setSample (channel, sample, loopSample);
@@ -158,18 +171,14 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
             readPosition++;
         }
 
-        // Sostituiamo l'output con l'audio estratto dal loop
         for (int channel = 0; channel < totalNumOutputChannels; ++channel)
-        {
             buffer.copyFrom (channel, 0, outputBuffer, channel, 0, numSamples);
-        }
 
         // Playback MIDI
         juce::MidiBuffer outputMidi;
         for (const auto metadata : midiLoopBuffer)
         {
             int eventPos = metadata.samplePosition;
-            // Verifica se l'evento ricade nella finestra di campioni attuale
             if (eventPos >= readPosition - numSamples && eventPos < readPosition)
             {
                 int offset = eventPos - (readPosition - numSamples);
@@ -189,10 +198,31 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         midiLoopBuffer.clear();
     }
 
-    // Passaggio attraverso il filtro Cutoff (DSP Block)
+    // --- ELABORAZIONE DSP (Filtro Cutoff + Dub Delay) ---
+    
+    // 1. Applica Filtro Cutoff al segnale principale
     juce::dsp::AudioBlock<float> block (buffer);
     juce::dsp::ProcessContextReplacing<float> context (block);
     cutoffFilter.process (context);
+
+    // 2. Applica Dub Delay con Saturazione di Feedback
+    for (int sample = 0; sample < numSamples; ++sample)
+    {
+        for (int channel = 0; channel < totalNumOutputChannels; ++channel)
+        {
+            float inputSample = buffer.getSample (channel, sample);
+            float delayedSample = dubDelay.popSample (channel);
+
+            // Mix audio: segnale originale + segnale ritardato
+            buffer.setSample (channel, sample, inputSample + (delayedSample * 0.7f));
+
+            // Feedback con lieve saturazione stile tape dub (std::tanh)
+            float feedbackSample = inputSample + (delayedSample * delayFeedback);
+            feedbackSample = std::tanh (feedbackSample); // Saturazione analogica non lineare
+
+            dubDelay.pushSample (channel, feedbackSample);
+        }
+    }
 }
 
 //==============================================================================
