@@ -47,7 +47,6 @@ public:
 
 private:
     //==============================================================================
-    // Generatore dei parametri
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
     // Loop Buffers
@@ -61,8 +60,12 @@ private:
     int maxLoopSamples { 0 };
     double currentSampleRate { 44100.0 };
 
-    // DSP Module per il Filtro Cutoff
+    // DSP Modules
     juce::dsp::StateVariableTPTFilter<float> cutoffFilter;
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationType::Linear> dubDelay { 192000 }; // Delay buffer per 2+ sec a 96kHz
+    
+    // Buffer circolare per feedback del Dub Delay
+    juce::AudioBuffer<float> delayFeedbackBuffer;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AdvancedLooperAudioProcessor)
 };
