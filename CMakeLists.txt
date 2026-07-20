@@ -28,7 +28,7 @@ juce_add_plugin(AdvancedLooper
     FORMATS VST3 Standalone
     PRODUCT_NAME "Advanced Dub Looper"
 )
-
+juce_generate_juce_header(AdvancedLooper)
 # Sorgenti
 target_sources(AdvancedLooper PRIVATE
     Source/PluginProcessor.h
