@@ -149,7 +149,7 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
                 outputMidi.addEvent (metadata.getMessage(), eventPos - readPosition);
             }
         }
-        midiMessages.swap (outputMidi);
+        midiMessages.swapWith (outputMidi);
     }
 
     // Passaggio attraverso il filtro Cutoff (DSP Block)
