@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "PluginEditor.h"
 
 //==============================================================================
 AdvancedLooperAudioProcessor::AdvancedLooperAudioProcessor()
@@ -159,9 +160,8 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
 }
 
 //==============================================================================
-// Boilerplate di base di JUCE...
 bool AdvancedLooperAudioProcessor::hasEditor() const { return true; }
-juce::AudioProcessorEditor* AdvancedLooperAudioProcessor::createEditor() { return new juce::GenericAudioProcessorEditor (*this); }
+juce::AudioProcessorEditor* AdvancedLooperAudioProcessor::createEditor() { return new AdvancedLooperAudioProcessorEditor (*this); }
 const juce::String AdvancedLooperAudioProcessor::getName() const { return JucePlugin_Name; }
 bool AdvancedLooperAudioProcessor::acceptsMidi() const { return true; }
 bool AdvancedLooperAudioProcessor::producesMidi() const { return true; }
@@ -178,4 +178,32 @@ void AdvancedLooperAudioProcessor::setStateInformation (const void* data, int si
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new AdvancedLooperAudioProcessor();
+}
+
+bool AdvancedLooperAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+{
+#if JucePlugin_IsMidiEffect
+    juce::ignoreUnused (layouts);
+    return true;
+#else
+    if (layouts.getMainOutputChannelSet() != juce::AudioChannelSet::mono()
+     && layouts.getMainOutputChannelSet() != juce::AudioChannelSet::stereo())
+        return false;
+
+   #if ! JucePlugin_IsSynth
+    if (layouts.getMainOutputChannelSet() != layouts.getMainInputChannelSet())
+        return false;
+   #endif
+
+    return true;
+#endif
+}
+
+bool AdvancedLooperAudioProcessor::isMidiEffect() const
+{
+#if JucePlugin_IsMidiEffect
+    return true;
+#else
+    return false;
+#endif
 }
