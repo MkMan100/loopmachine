@@ -15,7 +15,7 @@ public:
 private:
     AdvancedLooperAudioProcessor& audioProcessor;
 
-    // --- Manopole UI (Rotary Sliders) ---
+    // --- Controllo Controlli GUI (Slidres & Buttons) ---
     juce::Slider stateSlider;
     juce::Slider loopLengthSlider;
     juce::Slider stepReduceSlider;
@@ -24,6 +24,12 @@ private:
     juce::Slider delayFeedbackSlider;
 
     juce::ToggleButton reverseButton { "REVERSE" };
+
+    // --- Pulsanti Registrazione Automazioni (Rec Toggles) ---
+    juce::ToggleButton recCutoffButton    { "REC AUTO" };
+    juce::ToggleButton recDelayTimeButton { "REC AUTO" };
+    juce::ToggleButton recDelayFBButton   { "REC AUTO" };
+    juce::ToggleButton recStepDivButton   { "REC AUTO" };
 
     // --- Etichette ---
     juce::Label stateLabel        { {}, "Mode" };
@@ -44,6 +50,12 @@ private:
     std::unique_ptr<SliderAttachment> cutoffAttachment;
     std::unique_ptr<SliderAttachment> delayTimeAttachment;
     std::unique_ptr<SliderAttachment> delayFeedbackAttachment;
+
+    // Attachments per le automazioni
+    std::unique_ptr<ButtonAttachment> recCutoffAttachment;
+    std::unique_ptr<ButtonAttachment> recDelayTimeAttachment;
+    std::unique_ptr<ButtonAttachment> recDelayFBAttachment;
+    std::unique_ptr<ButtonAttachment> recStepDivAttachment;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AdvancedLooperAudioProcessorEditor)
 };
