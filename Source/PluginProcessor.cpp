@@ -5,14 +5,14 @@
 AdvancedLooperAudioProcessor::AdvancedLooperAudioProcessor()
 #ifndef JucePlugin_PreferredChannelConfigurations
      : AudioProcessor (BusesProperties()
-                     #if ! JucePlugin_IsMidiEffect
-                      #if ! JucePlugin_IsSynth
-                       .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                      #if ! JucePlugin_IsMidiEffect
+                       #if ! JucePlugin_IsSynth
+                        .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
+                       #endif
+                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
                       #endif
-                       .withOutput ("Output", juce::AudioChannelSet::stereo(), true)
-                     #endif
-                       ),
-       apvts (*this, nullptr, "Parameters", createParameterLayout())
+                        ),
+        apvts (*this, nullptr, "Parameters", createParameterLayout())
 #endif
 {
 }
@@ -30,11 +30,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout AdvancedLooperAudioProcessor
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("state", "State", 
         juce::StringArray { "Empty", "Recording", "Playing", "Overdub" }, 0));
 
-    // 2. Step Reduction (es. 16 = normale, 8, 4, 2 step attivi)
+    // 2. Step Division (Frazioni ritmiche)
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("stepReduce", "Step Division", 
-    juce::StringArray { "1/1 (Full)", "3/4", "1/2", "1/3", "1/4", "1/8" }, 0));
+        juce::StringArray { "1/1 (Full)", "3/4", "1/2", "1/3", "1/4", "1/8" }, 0));
 
-    // 3. Lunghezza Sample in Beat/Bars (es. 1, 2, 4, 8, 16 beat)
+    // 3. Lunghezza Sample in Beat/Bars
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("loopLength", "Loop Length (Beats)", 
         juce::StringArray { "1", "2", "4", "8", "16", "32" }, 2));
 
@@ -99,7 +99,6 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
     float cutoffHz       = *apvts.getRawParameterValue ("cutoff");
     bool isReverse       = *apvts.getRawParameterValue ("reverse") > 0.5f;
     int currentState     = static_cast<int> (*apvts.getRawParameterValue ("state"));
-    int stepReduceVal    = static_cast<int> (*apvts.getRawParameterValue ("stepReduce")); // 1 (normale) a 16 (molto quantizzato)
     float delayTimeMs    = *apvts.getRawParameterValue ("delayTime");
     float delayFeedback  = *apvts.getRawParameterValue ("delayFeedback");
 
@@ -135,47 +134,47 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         outputBuffer.setSize (totalNumOutputChannels, numSamples);
         outputBuffer.clear();
 
-        // Legge l'indice scelto (0 = 1/1, 1 = 3/4, 2 = 1/2, 3 = 1/3, 4 = 1/4, 5 = 1/8)
-          int stepReduceIdx = static_cast<int> (*apvts.getRawParameterValue ("stepReduce"));
+        // Legge l'indice scelto per la divisione ritmica
+        int stepReduceIdx = static_cast<int> (*apvts.getRawParameterValue ("stepReduce"));
 
         // Moltiplicatore della lunghezza effettiva del loop
-          float lengthMultiplier = 1.0f;
-          switch (stepReduceIdx)
-{
-    case 0: lengthMultiplier = 1.0f;    break; // 1/1 (Full)
-    case 1: lengthMultiplier = 0.75f;   break; // 3/4
-    case 2: lengthMultiplier = 0.50f;   break; // 1/2
-    case 3: lengthMultiplier = 0.333f;  break; // 1/3
-    case 4: lengthMultiplier = 0.25f;   break; // 1/4
-    case 5: lengthMultiplier = 0.125f;  break; // 1/8
-    default: lengthMultiplier = 1.0f;   break;
-}
-
-// Applica il limite alla durata effettiva di lettura
-int activeLoopLength = static_cast<int> (recordedLoopLength * lengthMultiplier);
-if (activeLoopLength < 1) activeLoopLength = recordedLoopLength;
-
-// Nella logica di Playback/Overdub:
-for (int sample = 0; sample < numSamples; ++sample)
-{
-    readPosition %= activeLoopLength; // Legge solo entro il range ridotto ritmicamente!
-    int actualReadPos = isReverse ? (activeLoopLength - 1 - readPosition) : readPosition;
-
-    for (int channel = 0; channel < totalNumInputChannels; ++channel)
-    {
-        float loopSample = loopAudioBuffer.getSample (channel, actualReadPos);
-        
-        if (currentState == 3) // Overdub
+        float lengthMultiplier = 1.0f;
+        switch (stepReduceIdx)
         {
-            float inputSample = buffer.getSample (channel, sample);
-            loopAudioBuffer.setSample (channel, actualReadPos, loopSample + inputSample);
-            loopSample += inputSample;
+            case 0: lengthMultiplier = 1.0f;    break; // 1/1 (Full)
+            case 1: lengthMultiplier = 0.75f;   break; // 3/4
+            case 2: lengthMultiplier = 0.50f;   break; // 1/2
+            case 3: lengthMultiplier = 0.333f;  break; // 1/3
+            case 4: lengthMultiplier = 0.25f;   break; // 1/4
+            case 5: lengthMultiplier = 0.125f;  break; // 1/8
+            default: lengthMultiplier = 1.0f;   break;
         }
 
-        outputBuffer.setSample (channel, sample, loopSample);
-    }
-    readPosition++;
-}
+        // Calcola la durata ridotta del loop
+        int activeLoopLength = static_cast<int> (recordedLoopLength * lengthMultiplier);
+        if (activeLoopLength < 1) activeLoopLength = recordedLoopLength;
+
+        for (int sample = 0; sample < numSamples; ++sample)
+        {
+            readPosition %= activeLoopLength; 
+            int actualReadPos = isReverse ? (activeLoopLength - 1 - readPosition) : readPosition;
+
+            for (int channel = 0; channel < totalNumInputChannels; ++channel)
+            {
+                float loopSample = loopAudioBuffer.getSample (channel, actualReadPos);
+                
+                if (currentState == 3) // Overdub pulito
+                {
+                    float inputSample = buffer.getSample (channel, sample);
+                    loopAudioBuffer.setSample (channel, actualReadPos, loopSample + inputSample);
+                    loopSample += inputSample;
+                }
+
+                outputBuffer.setSample (channel, sample, loopSample);
+            }
+            readPosition++;
+        }
+
         for (int channel = 0; channel < totalNumOutputChannels; ++channel)
             buffer.copyFrom (channel, 0, outputBuffer, channel, 0, numSamples);
 
@@ -223,18 +222,19 @@ for (int sample = 0; sample < numSamples; ++sample)
 
             // Feedback con lieve saturazione stile tape dub (std::tanh)
             float feedbackSample = inputSample + (delayedSample * delayFeedback);
-            feedbackSample = std::tanh (feedbackSample); // Saturazione analogica non lineare
+            feedbackSample = std::tanh (feedbackSample); 
 
             dubDelay.pushSample (channel, feedbackSample);
         }
     }
 }
+
 void AdvancedLooperAudioProcessor::releaseResources()
 {
-    // Quando la riproduzione si ferma, liberiamo le risorse dei moduli DSP
     cutoffFilter.reset();
     dubDelay.reset();
 }
+
 //==============================================================================
 bool AdvancedLooperAudioProcessor::hasEditor() const { return true; }
 juce::AudioProcessorEditor* AdvancedLooperAudioProcessor::createEditor() { return new AdvancedLooperAudioProcessorEditor (*this); }
