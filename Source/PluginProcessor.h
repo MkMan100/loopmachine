@@ -49,14 +49,21 @@ private:
     //==============================================================================
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 
-    // Loop Buffers
+    // Loop Buffers (Audio & MIDI)
     juce::AudioBuffer<float> loopAudioBuffer;
     juce::MidiBuffer midiLoopBuffer;
+
+    // Buffers per la registrazione delle automazioni dei parametri
+    std::vector<float> cutoffAutomation;
+    std::vector<float> delayTimeAutomation;
+    std::vector<float> delayFeedbackAutomation;
+    std::vector<int>   stepReduceAutomation;
 
     // Indici delle testine e metrica del loop
     int writePosition { 0 };
     int readPosition { 0 };
     int recordedLoopLength { 0 };
+    int targetLoopLengthSamples { 0 };
     int maxLoopSamples { 0 };
     double currentSampleRate { 44100.0 };
 
