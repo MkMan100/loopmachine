@@ -4,16 +4,15 @@
 AdvancedLooperAudioProcessorEditor::AdvancedLooperAudioProcessorEditor (AdvancedLooperAudioProcessor& p)
     : AudioProcessorEditor (&p), audioProcessor (p)
 {
-    setSize (680, 360); // Altezza totale regolata per adattarsi alle due righe senza spazi vuoti
+    setSize (680, 430); // Finestra più alta per dare spazio alle due righe
 
-    // Funzione helper per configurare le manopole ed evitare sovrapposizioni di testo
+    // Funzione helper per configurare le manopole
     auto setupKnob = [this](juce::Slider& slider, juce::Label& label) {
         slider.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         slider.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 16);
         addAndMakeVisible (slider);
         
-        // Etichetta sopra la manopola
-        label.attachToComponent (&slider, false);
+        label.attachToComponent (&slider, false); // Etichetta agganciata sopra
         label.setJustificationType (juce::Justification::centred);
     };
 
@@ -72,41 +71,53 @@ void AdvancedLooperAudioProcessorEditor::paint (juce::Graphics& g)
 
 void AdvancedLooperAudioProcessorEditor::resized()
 {
-    auto area = getLocalBounds().reduced (10);
-    area.removeFromTop (25); // Spazio per titolo
+    auto area = getLocalBounds().reduced (15);
+    area.removeFromTop (25); // Spazio per il titolo
 
-    // --- Prima Riga: Controlli Looper (Più compatta) ---
-    auto topRow = area.removeFromTop (135);
+    // --- PRIMA RIGA: Controlli Looper ---
+    auto topRow = area.removeFromTop (150);
     int topWidth = topRow.getWidth() / 4;
 
-    // Mode & Beats (Manopole più piccole e senza pulsante sotto)
-    stateSlider.setBounds (topRow.removeFromLeft (topWidth).reduced (15, 5));
-    loopLengthSlider.setBounds (topRow.removeFromLeft (topWidth).reduced (15, 5));
+    // Mode & Beats
+    auto stateArea = topRow.removeFromLeft (topWidth).reduced (10, 0);
+    stateArea.removeFromTop (18); // Spazio dedicato all'etichetta in alto
+    stateSlider.setBounds (stateArea);
+
+    auto loopArea = topRow.removeFromLeft (topWidth).reduced (10, 0);
+    loopArea.removeFromTop (18);
+    loopLengthSlider.setBounds (loopArea);
 
     // Step Div con pulsante REC AUTO sotto
     auto stepArea = topRow.removeFromLeft (topWidth).reduced (10, 0);
+    stepArea.removeFromTop (18);
     stepReduceSlider.setBounds (stepArea.removeFromTop (100));
     recStepDivButton.setBounds (stepArea.removeFromTop (24));
 
     // Reverse Button
-    reverseButton.setBounds (topRow.removeFromLeft (topWidth).reduced (10, 35));
+    reverseButton.setBounds (topRow.removeFromLeft (topWidth).reduced (10, 45));
 
-    // --- Seconda Riga: Controlli Dub Effects ---
-    auto bottomRow = area.removeFromTop (150);
+    // --- SPAZIATORE VERTICALE ---
+    area.removeFromTop (20); // Separa nettamente la prima riga dalla seconda
+
+    // --- SECONDA RIGA: Controlli Dub Effects ---
+    auto bottomRow = area.removeFromTop (160);
     int bottomWidth = bottomRow.getWidth() / 3;
 
     // Cutoff
-    auto cutoffArea = bottomRow.removeFromLeft (bottomWidth).reduced (10, 0);
-    cutoffSlider.setBounds (cutoffArea.removeFromTop (110));
+    auto cutoffArea = bottomRow.removeFromLeft (bottomWidth).reduced (12, 0);
+    cutoffArea.removeFromTop (18);
+    cutoffSlider.setBounds (cutoffArea.removeFromTop (105));
     recCutoffButton.setBounds (cutoffArea.removeFromTop (24));
 
     // Delay Time
-    auto delayTimeArea = bottomRow.removeFromLeft (bottomWidth).reduced (10, 0);
-    delayTimeSlider.setBounds (delayTimeArea.removeFromTop (110));
+    auto delayTimeArea = bottomRow.removeFromLeft (bottomWidth).reduced (12, 0);
+    delayTimeArea.removeFromTop (18);
+    delayTimeSlider.setBounds (delayTimeArea.removeFromTop (105));
     recDelayTimeButton.setBounds (delayTimeArea.removeFromTop (24));
 
     // Delay Feedback
-    auto delayFBArea = bottomRow.removeFromLeft (bottomWidth).reduced (10, 0);
-    delayFeedbackSlider.setBounds (delayFBArea.removeFromTop (110));
+    auto delayFBArea = bottomRow.removeFromLeft (bottomWidth).reduced (12, 0);
+    delayFBArea.removeFromTop (18);
+    delayFeedbackSlider.setBounds (delayFBArea.removeFromTop (105));
     recDelayFBButton.setBounds (delayFBArea.removeFromTop (24));
 }
