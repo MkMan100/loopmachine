@@ -31,7 +31,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout AdvancedLooperAudioProcessor
         juce::StringArray { "Empty", "Recording", "Playing", "Overdub" }, 0));
 
     // 2. Step Reduction (es. 16 = normale, 8, 4, 2 step attivi)
-    params.push_back (std::make_unique<juce::AudioParameterInt> ("stepReduce", "Step Reduction", 1, 16, 16));
+    params.push_back (std::make_unique<juce::AudioParameterChoice> ("stepReduce", "Step Division", 
+    juce::StringArray { "1/1 (Full)", "3/4", "1/2", "1/3", "1/4", "1/8" }, 0));
 
     // 3. Lunghezza Sample in Beat/Bars (es. 1, 2, 4, 8, 16 beat)
     params.push_back (std::make_unique<juce::AudioParameterChoice> ("loopLength", "Loop Length (Beats)", 
@@ -134,43 +135,47 @@ void AdvancedLooperAudioProcessor::processBlock (juce::AudioBuffer<float>& buffe
         outputBuffer.setSize (totalNumOutputChannels, numSamples);
         outputBuffer.clear();
 
-        // Calcolo della dimensione dello step per Step Reduction (sample-hold / stutter effect non distruttivo)
-        int stepSizeSamples = 1;
-        if (stepReduceVal < 16)
+        // Legge l'indice scelto (0 = 1/1, 1 = 3/4, 2 = 1/2, 3 = 1/3, 4 = 1/4, 5 = 1/8)
+          int stepReduceIdx = static_cast<int> (*apvts.getRawParameterValue ("stepReduce"));
+
+        // Moltiplicatore della lunghezza effettiva del loop
+          float lengthMultiplier = 1.0f;
+          switch (stepReduceIdx)
+{
+    case 0: lengthMultiplier = 1.0f;    break; // 1/1 (Full)
+    case 1: lengthMultiplier = 0.75f;   break; // 3/4
+    case 2: lengthMultiplier = 0.50f;   break; // 1/2
+    case 3: lengthMultiplier = 0.333f;  break; // 1/3
+    case 4: lengthMultiplier = 0.25f;   break; // 1/4
+    case 5: lengthMultiplier = 0.125f;  break; // 1/8
+    default: lengthMultiplier = 1.0f;   break;
+}
+
+// Applica il limite alla durata effettiva di lettura
+int activeLoopLength = static_cast<int> (recordedLoopLength * lengthMultiplier);
+if (activeLoopLength < 1) activeLoopLength = recordedLoopLength;
+
+// Nella logica di Playback/Overdub:
+for (int sample = 0; sample < numSamples; ++sample)
+{
+    readPosition %= activeLoopLength; // Legge solo entro il range ridotto ritmicamente!
+    int actualReadPos = isReverse ? (activeLoopLength - 1 - readPosition) : readPosition;
+
+    for (int channel = 0; channel < totalNumInputChannels; ++channel)
+    {
+        float loopSample = loopAudioBuffer.getSample (channel, actualReadPos);
+        
+        if (currentState == 3) // Overdub
         {
-            // Mappa il valore di stepReduce in una dimensione di blocco audio quantizzata
-            int divisionFactor = 17 - stepReduceVal; // da 1 (micro) a 16 (macro)
-            stepSizeSamples = juce::jmax (1, static_cast<int> (currentSampleRate / (divisionFactor * 4)));
+            float inputSample = buffer.getSample (channel, sample);
+            loopAudioBuffer.setSample (channel, actualReadPos, loopSample + inputSample);
+            loopSample += inputSample;
         }
 
-        for (int sample = 0; sample < numSamples; ++sample)
-        {
-            readPosition %= recordedLoopLength;
-
-            // Logica Step Reduction: quantizza la posizione di lettura a blocchi rigidi
-            int quantizedReadPos = (readPosition / stepSizeSamples) * stepSizeSamples;
-            quantizedReadPos %= recordedLoopLength;
-
-            // Indice finale tenendo conto di Reverse
-            int actualReadPos = isReverse ? (recordedLoopLength - 1 - quantizedReadPos) : quantizedReadPos;
-
-            for (int channel = 0; channel < totalNumInputChannels; ++channel)
-            {
-                float loopSample = loopAudioBuffer.getSample (channel, actualReadPos);
-
-                if (currentState == 3) // Overdub
-                {
-                    float inputSample = buffer.getSample (channel, sample);
-                    loopAudioBuffer.setSample (channel, actualReadPos, loopSample + inputSample);
-                    loopSample += inputSample;
-                }
-
-                outputBuffer.setSample (channel, sample, loopSample);
-            }
-
-            readPosition++;
-        }
-
+        outputBuffer.setSample (channel, sample, loopSample);
+    }
+    readPosition++;
+}
         for (int channel = 0; channel < totalNumOutputChannels; ++channel)
             buffer.copyFrom (channel, 0, outputBuffer, channel, 0, numSamples);
 
